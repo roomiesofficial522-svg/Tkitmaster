@@ -11,12 +11,12 @@ const seedDB = async () => {
   try {
     // 1. Connect
     await mongoose.connect(MONGO_URI);
-    console.log('✅ Connected to MongoDB');
+    console.log('Connected to MongoDB');
 
     const redisClient = createClient();
     redisClient.on('error', err => console.error('Redis Client Error', err));
     await redisClient.connect();
-    console.log('✅ Connected to Redis');
+    console.log('Connected to Redis');
     
     // 2. Delete old datas and indexes
     console.log('Deleting old collections');
@@ -64,4 +64,5 @@ const seedDB = async () => {
 
 
 seedDB();
+
 
