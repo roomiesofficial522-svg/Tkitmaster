@@ -1,4 +1,3 @@
-// server/models/Seat.js
 const mongoose = require('mongoose');
 
 const seatSchema = new mongoose.Schema({
@@ -9,7 +8,8 @@ const seatSchema = new mongoose.Schema({
   tier: { type: String, enum: ['vip', 'premium', 'standard'], required: true },
   status: { type: String, enum: ['available', 'booked'], default: 'available' },
   userId: { type: String, default: null }, // Who owns it?
-  version: { type: Number, default: 0 } // Optimistic Concurrency Control (Judge brownie points)
+  version: { type: Number, default: 0 } // Concurrency Control 
 });
+
 
 module.exports = mongoose.model('Seat', seatSchema);
