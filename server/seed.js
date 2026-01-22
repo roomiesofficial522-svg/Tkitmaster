@@ -1,4 +1,3 @@
-// server/seed.js
 const mongoose = require('mongoose');
 const Seat = require('./models/Seat');
 const { createClient } = require('redis');
@@ -65,3 +64,4 @@ const seedDB = async () => {
 
 
 seedDB();
+
