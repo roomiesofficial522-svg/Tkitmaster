@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Clock, AlertCircle, Check, X, Zap, TrendingUp, Trash2, RotateCcw } from 'lucide-react';
+import { Clock, AlertCircle, Check, X, Zap, TrendingUp, Trash2, RotateCcw, Lock, Mail, Smartphone, Key, LogIn, Loader2 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 
+// --- TYPES ---
 type SeatState = 'available' | 'selected' | 'booked' | 'locked';
 type SeatTier = 'vip' | 'premium' | 'standard';
 
@@ -33,13 +34,19 @@ const TIER_CONFIG: Record<SeatTier, { price: number; color: string; glowColor: s
   standard: { price: 5000, color: 'border-blue-500', glowColor: 'shadow-blue-500/50', label: 'Standard' },
 };
 
-const getTierForRow = (row: string): SeatTier => {
-  if (['A', 'B'].includes(row)) return 'vip';
-  if (['C', 'D', 'E', 'F'].includes(row)) return 'premium';
-  return 'standard';
-};
-
 export default function App() {
+  // --- AUTH STATE ---
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [token, setToken] = useState<string | null>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
+  const [showOtpInput, setShowOtpInput] = useState(false);
+  const [isSendingOtp, setIsSendingOtp] = useState(false); // 🆕 Loading State
+
+  // --- APP STATE ---
   const [seats, setSeats] = useState<Seat[]>([]);
   const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
   const [timeLeft, setTimeLeft] = useState(BOOKING_TIME_LIMIT);
@@ -48,18 +55,30 @@ export default function App() {
   const [logCounter, setLogCounter] = useState(0);
   const [isBooking, setIsBooking] = useState(false);
   const [recentSoldCount, setRecentSoldCount] = useState(0);
-  
-  // NEW STATES
   const [devMode, setDevMode] = useState(false);
   const [shakingSeat, setShakingSeat] = useState<string | null>(null);
   const [isSessionExpired, setIsSessionExpired] = useState(false); 
-  const [myUserId] = useState(() => Math.floor(Math.random() * 10000) + 1);
+  const [myUserId, setMyUserId] = useState<string | number>(0); 
 
-  // Initialize
+  // --- 🆕 PERSISTENCE & INIT ---
   useEffect(() => {
-    addLog(`System initialized. User ID: ${myUserId}`, 'success');
-  }, [myUserId]);
+    // Check Local Storage on Mount
+    const storedToken = localStorage.getItem('token');
+    const storedUserId = localStorage.getItem('userId');
+    if (storedToken && storedUserId) {
+        setToken(storedToken);
+        setMyUserId(storedUserId);
+        setIsAuthenticated(true);
+    }
+  }, []);
 
+  const handleLogout = () => {
+      localStorage.removeItem('token');
+      localStorage.removeItem('userId');
+      window.location.reload();
+  };
+
+  // --- LOGGING ---
   const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
     setLogCounter((prev) => {
       const newId = prev + 1;
@@ -76,8 +95,88 @@ export default function App() {
     });
   }, []);
 
-  // Timer
+  // --- AUTH HANDLERS ---
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // 🛡️ EMAIL DOMAIN CHECK
+    const allowedDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com'];
+    const domain = email.split('@')[1];
+    if (!domain || !allowedDomains.includes(domain)) {
+        return toast.error("Only Gmail, Yahoo, Outlook, or iCloud allowed.");
+    }
+
+    if (showOtpInput) {
+        // VERIFY OTP
+        try {
+            const res = await fetch('http://localhost:3001/api/auth/verify-register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, otp, password, phone })
+            });
+            const data = await res.json();
+            if (data.success) {
+                // 💾 SAVE TO STORAGE
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('userId', data.userId);
+                
+                setToken(data.token);
+                setMyUserId(data.userId);
+                setIsAuthenticated(true);
+                toast.success("Welcome!");
+            } else {
+                toast.error(data.error || "Failed");
+            }
+        } catch (err) { toast.error("Server Error"); }
+    } else {
+        // SEND OTP
+        setIsSendingOtp(true); // START LOADING
+        try {
+            const res = await fetch('http://localhost:3001/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            });
+            const data = await res.json();
+            if (data.success) {
+                setShowOtpInput(true);
+                toast.success("OTP Sent!");
+            } else {
+                toast.error(data.error);
+            }
+        } catch (err) { toast.error("Server Error"); }
+        finally { setIsSendingOtp(false); } // END LOADING
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+        const res = await fetch('http://localhost:3001/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        if (data.success) {
+            // 💾 SAVE TO STORAGE
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('userId', data.userId);
+
+            setToken(data.token);
+            setMyUserId(data.userId);
+            setIsAuthenticated(true);
+            toast.success("Logged In");
+        } else {
+            toast.error(data.error);
+        }
+    } catch (err) { toast.error("Server Error"); }
+  };
+
+  // --- APP LOGIC ---
+
   useEffect(() => {
+    if(!isAuthenticated) return;
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
@@ -89,50 +188,34 @@ export default function App() {
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isAuthenticated]);
 
-  // 🔄 REAL-TIME SYNC ENGINE (High Frequency)
   useEffect(() => {
+    if(!isAuthenticated) return;
     const fetchStadium = async () => {
       try {
         const res = await fetch('http://localhost:3001/api/seats');
         const data = await res.json();
-        
         if (data.seats) {
-          const serverSeats: Seat[] = data.seats;
-          
           setSeats((currentSeats) => {
-             if (currentSeats.length === 0) return serverSeats;
-
-             return serverSeats.map(serverSeat => {
+             if (currentSeats.length === 0) return data.seats;
+             return data.seats.map((serverSeat: Seat) => {
                 const currentSeat = currentSeats.find(s => s.id === serverSeat.id);
-                
-                // Preserve my selection if valid
                 if (currentSeat?.state === 'selected' && serverSeat.state !== 'booked') {
-                    return { ...serverSeat, state: 'selected', lockedBy: myUserId };
+                    return { ...serverSeat, state: 'selected', lockedBy: Number(myUserId) };
                 }
-
-                // Visual Masking: Locked by other -> Booked (Red)
-                if (serverSeat.state === 'locked' && serverSeat.lockedBy !== myUserId) {
-                    return { ...serverSeat, state: 'booked' };
-                }
-
                 return serverSeat;
              });
           });
-
-          const sold = serverSeats.filter(s => s.state === 'booked').length;
+          const sold = data.seats.filter((s: Seat) => s.state === 'booked').length;
           setRecentSoldCount(sold);
         }
-      } catch (err) {
-        // Silent fail
-      }
+      } catch (err) {}
     };
-
     fetchStadium();
     const interval = setInterval(fetchStadium, 500); 
     return () => clearInterval(interval);
-  }, [myUserId]);
+  }, [myUserId, isAuthenticated]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -142,22 +225,15 @@ export default function App() {
 
   const handleSeatClick = async (seatId: string) => {
     const seat = seats.find((s) => s.id === seatId);
-
     if (!seat || seat.state === 'booked') {
-        setShakingSeat(seatId);
-        setTimeout(() => setShakingSeat(null), 500);
-        toast.error("Seat unavailable");
-        return;
+        setShakingSeat(seatId); setTimeout(() => setShakingSeat(null), 500);
+        return toast.error("Seat unavailable");
+    }
+    if (seat.state === 'locked' && String(seat.lockedBy) !== String(myUserId)) {
+        setShakingSeat(seatId); setTimeout(() => setShakingSeat(null), 500);
+        return toast.error(`Seat locked by user`);
     }
 
-    if (seat.state === 'locked' && seat.lockedBy !== myUserId) {
-        setShakingSeat(seatId);
-        setTimeout(() => setShakingSeat(null), 500);
-        toast.error(`Seat ${seatId} is currently held by another user.`);
-        return;
-    }
-
-    // DESELECT
     if (selectedSeats.includes(seatId)) {
         setSelectedSeats((prev) => prev.filter((id) => id !== seatId));
         setSeats((prev) => prev.map((s) => (s.id === seatId ? { ...s, state: 'available', lockedBy: undefined } : s)));
@@ -168,37 +244,32 @@ export default function App() {
             body: JSON.stringify({ seatId, userId: myUserId })
         });
         addLog(`Lock released for ${seatId}`, 'info');
-        return;
-    }
+    } else {
+        try {
+            const response = await fetch('http://localhost:3001/api/lock', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ seatId }) 
+            });
+            const data = await response.json();
 
-    // LOCK
-    try {
-        const response = await fetch('http://localhost:3001/api/lock', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ seatId, userId: myUserId })
-        });
-        const data = await response.json();
-
-        if (response.ok && data.success) {
-            setSelectedSeats((prev) => [...prev, seatId]);
-            setSeats((prev) => prev.map((s) => (s.id === seatId ? { ...s, state: 'selected', lockedBy: myUserId } : s))); 
-            toast.success(`Seat Locked! 5:00 timer started.`);
-        } else {
-            setShakingSeat(seatId);
-            setTimeout(() => setShakingSeat(null), 500);
-            
-            setSeats((prev) => prev.map((s) => (s.id === seatId ? { ...s, state: 'booked' } : s))); 
-            toast.error("Too Slow! Seat just taken.");
-        }
-    } catch (error) {
-        toast.error("Network Error");
+            if (response.ok && data.success) {
+                setSelectedSeats((prev) => [...prev, seatId]);
+                setSeats((prev) => prev.map((s) => (s.id === seatId ? { ...s, state: 'selected', lockedBy: Number(myUserId) } : s))); 
+                toast.success(`Seat Locked!`);
+            } else {
+                setShakingSeat(seatId); setTimeout(() => setShakingSeat(null), 500);
+                setSeats((prev) => prev.map((s) => (s.id === seatId ? { ...s, state: 'booked' } : s))); 
+                toast.error("Too Slow!");
+            }
+        } catch (error) { toast.error("Network Error"); }
     }
   };
 
-  // ✅ FIX: MANUALLY UPDATE SEAT STATE TO 'AVAILABLE'
   const handleReset = async () => {
-    // 1. Release all on server
     await Promise.all(selectedSeats.map(seatId => 
         fetch('http://localhost:3001/api/release', {
             method: 'POST',
@@ -206,14 +277,7 @@ export default function App() {
             body: JSON.stringify({ seatId, userId: myUserId })
         })
     ));
-
-    // 2. FORCE UPDATE local state to 'available' immediately
-    // This stops the polling logic from "preserving" the selection
-    setSeats((prev) => prev.map((s) => 
-        selectedSeats.includes(s.id) ? { ...s, state: 'available', lockedBy: undefined } : s
-    ));
-
-    // 3. Clear the checkout list
+    setSeats((prev) => prev.map((s) => selectedSeats.includes(s.id) ? { ...s, state: 'available', lockedBy: undefined } : s));
     setSelectedSeats([]);
     addLog('Selection cleared', 'info');
   };
@@ -226,16 +290,14 @@ export default function App() {
     try {
       const response = await fetch('http://localhost:3001/api/pay', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          idempotencyKey,
-          seatId: selectedSeats[0],
-          userId: myUserId
-        })
+        headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({ idempotencyKey, seatId: selectedSeats[0] })
       });
 
       const data = await response.json();
-
       if (data.success) {
         setSeats((prev) => prev.map((s) => selectedSeats.includes(s.id) ? { ...s, state: 'booked' } : s));
         addLog(`✓ PAYMENT CONFIRMED: Tx ID ${data.txId}`, 'success');
@@ -243,33 +305,20 @@ export default function App() {
         setSelectedSeats([]);
       } else {
         toast.error(data.message || "Payment Failed");
-        addLog(`> PAYMENT ERROR: ${data.message}`, 'error');
       }
-    } catch (error) {
-      toast.error("Network Error");
-    } finally {
-      setIsBooking(false);
-    }
+    } catch (error) { toast.error("Network Error"); } 
+    finally { setIsBooking(false); }
   };
 
   const handleResetDB = async () => {
-    if(!confirm("⚠️ ARE YOU SURE? This will wipe the ENTIRE database.")) return;
-    try {
-        await fetch('http://localhost:3001/api/reset', { method: 'POST' });
-        setSelectedSeats([]);
-        toast.success("💥 Database Wiped");
-        addLog("SYSTEM RESET EXECUTED", 'error');
-    } catch (e) {
-        toast.error("Reset failed");
-    }
-  };
-
-  const handleRefreshSession = () => {
+    if(!confirm("⚠️ ARE YOU SURE?")) return;
+    await fetch('http://localhost:3001/api/reset', { method: 'POST' });
+    setSelectedSeats([]);
     window.location.reload();
   };
 
+  const handleRefreshSession = () => window.location.reload();
   const calculateTotal = () => selectedSeats.reduce((sum, id) => sum + (seats.find(s => s.id === id)?.price || 0), 0);
-  
   const getSelectedSeatsByTier = () => {
     const breakdown: Record<SeatTier, string[]> = { vip: [], premium: [], standard: [] };
     selectedSeats.forEach((seatId) => {
@@ -281,27 +330,71 @@ export default function App() {
   const totalPrice = calculateTotal();
   const seatBreakdown = getSelectedSeatsByTier();
 
+  if (!isAuthenticated) {
+    return (
+        <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
+            <Toaster position="top-center" theme="dark" />
+            <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-purple-600/20 rounded-full blur-[120px]"></div>
+            
+            <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 p-8 rounded-3xl w-full max-w-md shadow-2xl relative z-10">
+                <div className="text-center mb-6">
+                    <h1 className="text-3xl font-black bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">Login to TicketS ID</h1>
+                    <p className="text-gray-400 text-xs mt-1">The Secure Event Platform</p>
+                </div>
+
+                <div className="flex bg-black/40 p-1 rounded-xl mb-6">
+                    <button onClick={() => setAuthMode('login')} className={`flex-1 py-2 rounded-lg text-sm font-bold ${authMode === 'login' ? 'bg-white/10 text-white' : 'text-gray-500'}`}>LOGIN</button>
+                    <button onClick={() => setAuthMode('register')} className={`flex-1 py-2 rounded-lg text-sm font-bold ${authMode === 'register' ? 'bg-white/10 text-white' : 'text-gray-500'}`}>REGISTER</button>
+                </div>
+
+                {authMode === 'login' ? (
+                    <form onSubmit={handleLogin} className="space-y-4">
+                        <div className="relative">
+                            <Mail className="absolute left-3 top-3 w-5 h-5 text-gray-500" />
+                            <input type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} required className="w-full bg-black/50 border border-white/10 rounded-xl py-3 pl-10 text-white outline-none focus:border-blue-500" />
+                        </div>
+                        <div className="relative">
+                            <Lock className="absolute left-3 top-3 w-5 h-5 text-gray-500" />
+                            <input type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} required className="w-full bg-black/50 border border-white/10 rounded-xl py-3 pl-10 text-white outline-none focus:border-blue-500" />
+                        </div>
+                        <button className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all flex justify-center gap-2"><LogIn className="w-5 h-5"/> Access</button>
+                    </form>
+                ) : (
+                    <form onSubmit={handleRegister} className="space-y-4">
+                        {!showOtpInput ? (
+                            <>
+                                <input type="email" placeholder="Email (Gmail/Yahoo/Outlook)" value={email} onChange={e=>setEmail(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl py-3 px-4 text-white outline-none focus:border-purple-500" required />
+                                <input type="text" placeholder="Phone" value={phone} onChange={e=>setPhone(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl py-3 px-4 text-white outline-none focus:border-purple-500" required />
+                                <input type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl py-3 px-4 text-white outline-none focus:border-purple-500" required />
+                                <button disabled={isSendingOtp} className="w-full bg-purple-600 hover:bg-purple-500 disabled:bg-purple-900 text-white font-bold py-3 rounded-xl flex justify-center items-center gap-2">
+                                    {isSendingOtp ? <><Loader2 className="w-5 h-5 animate-spin" /> Sending...</> : "Send OTP"}
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <p className="text-center text-white text-sm">Check email for OTP</p>
+                                <input type="text" maxLength={6} placeholder="000000" value={otp} onChange={e=>setOtp(e.target.value)} className="w-full bg-black/50 border border-purple-500/50 rounded-xl py-3 text-center text-white text-xl tracking-widest outline-none font-mono" required />
+                                <button className="w-full bg-white text-black font-bold py-3 rounded-xl hover:scale-105 transition-all">Verify & Enter</button>
+                            </>
+                        )}
+                    </form>
+                )}
+            </div>
+        </div>
+    );
+  }
+
+  // --- MAIN UI ---
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 md:p-6 overflow-hidden relative">
       <Toaster position="top-center" theme="dark" richColors />
       
-      {/* SESSION EXPIRED OVERLAY */}
       {isSessionExpired && (
         <div className="absolute inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-red-500/50 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl shadow-red-500/20">
-                <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <Clock className="w-8 h-8 text-red-500" />
-                </div>
+            <div className="bg-slate-900 border border-red-500/50 rounded-2xl p-8 max-w-md w-full text-center">
                 <h2 className="text-3xl font-bold text-white mb-2">Session Expired</h2>
-                <p className="text-gray-400 mb-8">
-                    Your 5-minute booking window has closed. High-demand events require strict time limits to ensure fairness for all fans.
-                </p>
-                <button 
-                    onClick={handleRefreshSession}
-                    className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-all"
-                >
-                    <RotateCcw className="w-5 h-5" />
-                    Join Queue Again
+                <button onClick={handleRefreshSession} className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-6 rounded-xl mt-4">
+                    <RotateCcw className="w-5 h-5 inline mr-2" /> Join Queue Again
                 </button>
             </div>
         </div>
@@ -343,6 +436,10 @@ export default function App() {
                   </div>
                 </div>
               </div>
+              {/* 🆕 LOGOUT BUTTON */}
+              <button onClick={handleLogout} className="bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 p-3 rounded-xl transition-all" title="Logout">
+                  <RotateCcw className="w-5 h-5 text-red-500" />
+              </button>
             </div>
           </div>
         </div>
@@ -355,12 +452,7 @@ export default function App() {
             <div className="flex justify-end mb-4">
                 <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-full border border-white/10">
                     <span className="text-xs font-mono text-gray-400">DEV MODE</span>
-                    <input 
-                        type="checkbox" 
-                        checked={devMode} 
-                        onChange={(e) => setDevMode(e.target.checked)}
-                        className="accent-green-500 w-4 h-4 cursor-pointer"
-                    />
+                    <input type="checkbox" checked={devMode} onChange={(e) => setDevMode(e.target.checked)} className="accent-green-500 w-4 h-4 cursor-pointer" />
                 </div>
             </div>
 
@@ -376,43 +468,30 @@ export default function App() {
               <div className="grid grid-cols-10 gap-1">
                 {seats.map((seat) => {
                 const tierConfig = TIER_CONFIG[seat.tier];
-                const isMyLock = seat.lockedBy === myUserId;
+                const isMyLock = seat.state === 'locked' && String(seat.lockedBy) === String(myUserId);
                 const isAvailable = seat.state === 'available';
                 const isBooked = seat.state === 'booked'; 
                 const isSelected = selectedSeats.includes(seat.id) || isMyLock;
                 const isShaking = shakingSeat === seat.id;
 
                 return (
-                  <button
-                    key={seat.id}
-                    onClick={() => handleSeatClick(seat.id)}
-                    disabled={isBooked} 
-                    className={`
-                      h-7 md:h-9 rounded-md transition-all duration-200 text-xs font-mono relative flex items-center justify-center
+                  <button key={seat.id} onClick={() => handleSeatClick(seat.id)} disabled={isBooked} 
+                    className={`h-7 md:h-9 rounded-md transition-all duration-200 text-xs font-mono relative flex items-center justify-center
                       ${isShaking ? 'animate-shake border-red-500 border-2' : ''}
-                      
                       ${isAvailable ? `bg-white/5 border-2 ${tierConfig.color} hover:bg-gradient-to-br hover:shadow-lg ${tierConfig.glowColor} hover:scale-110` : ''}
                       ${isSelected ? 'bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-cyan-400 scale-105 shadow-lg shadow-cyan-500/50 z-10' : ''}
                       ${isBooked ? 'bg-red-950/40 border border-red-900/50 opacity-50 cursor-not-allowed' : ''}
                     `}
                   >
                     {!isSelected && !isBooked && !devMode && (
-                        <span className={`font-bold text-[10px] ${seat.tier === 'vip' ? 'text-yellow-500' : 'text-gray-400'}`}>
-                            {seat.id}
-                        </span>
+                        <span className={`font-bold text-[10px] ${seat.tier === 'vip' ? 'text-yellow-500' : 'text-gray-400'}`}>{seat.id}</span>
                     )}
-
                     {isSelected && <Check className="w-3 h-3 text-white" />}
                     {isBooked && !devMode && <X className="w-3 h-3 text-red-500" />}
-
                     {devMode && (
                         <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-20 pointer-events-none rounded-md">
                             <span className="text-[8px] text-green-400 leading-none mb-0.5">{seat.id}</span>
-                            {seat.ttl ? (
-                                <span className="text-[7px] text-yellow-400 leading-none">TTL:{seat.ttl}</span>
-                            ) : (
-                                <span className="text-[7px] text-gray-600 leading-none">--</span>
-                            )}
+                            {seat.ttl ? <span className="text-[7px] text-yellow-400 leading-none">TTL:{seat.ttl}</span> : <span className="text-[7px] text-gray-600 leading-none">--</span>}
                         </div>
                     )}
                   </button>
@@ -420,17 +499,12 @@ export default function App() {
               })}
               </div>
             </div>
-            
           </div>
         </div>
 
         <div className="xl:col-span-1">
           <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-2xl sticky top-6">
-            <h2 className="text-2xl font-bold mb-4 bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
-              Checkout
-            </h2>
-            
-            {/* Urgency Alert */}
+            <h2 className="text-2xl font-bold mb-4 bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">Checkout</h2>
             {recentSoldCount > 0 && (
               <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start gap-2 animate-pulse">
                 <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
@@ -441,13 +515,10 @@ export default function App() {
               </div>
             )}
             
-            {/* Selected Seats Breakdown */}
             <div className="mb-6">
               <div className="text-sm text-gray-400 mb-3 uppercase tracking-wider">Selected Seats</div>
               {selectedSeats.length === 0 ? (
-                <div className="text-gray-500 italic text-center py-8 border border-dashed border-gray-700 rounded-lg">
-                  No seats selected
-                </div>
+                <div className="text-gray-500 italic text-center py-8 border border-dashed border-gray-700 rounded-lg">No seats selected</div>
               ) : (
                 <div className="space-y-3">
                   {Object.entries(seatBreakdown).map(([tier, seatIds]) => {
@@ -461,12 +532,7 @@ export default function App() {
                         </div>
                         <div className="flex flex-wrap gap-1.5">
                           {seatIds.map((seatId) => (
-                            <span
-                              key={seatId}
-                              className={`px-2 py-1 rounded-md text-xs font-mono font-bold border-2 ${tierConfig.color} bg-white/5`}
-                            >
-                              {seatId}
-                            </span>
+                            <span key={seatId} className={`px-2 py-1 rounded-md text-xs font-mono font-bold border-2 ${tierConfig.color} bg-white/5`}>{seatId}</span>
                           ))}
                         </div>
                       </div>
@@ -476,7 +542,6 @@ export default function App() {
               )}
             </div>
             
-            {/* Total Price */}
             <div className="border-t border-white/20 pt-4 mb-6">
               <div className="flex justify-between items-center text-sm mb-2">
                 <span className="text-gray-400">Subtotal</span>
@@ -494,40 +559,19 @@ export default function App() {
               </div>
             </div>
             
-            {/* Action Buttons */}
-            <button
-              onClick={handleBookNow}
-              disabled={selectedSeats.length === 0 || isBooking}
-              className="w-full bg-gradient-to-r from-green-600 via-emerald-600 to-green-600 hover:from-green-500 hover:to-emerald-500 disabled:from-gray-700 disabled:to-gray-800 disabled:cursor-not-allowed py-4 px-6 rounded-xl font-bold text-lg mb-3 transition-all shadow-lg shadow-green-500/30 hover:shadow-green-500/50 hover:scale-105 flex items-center justify-center gap-2"
-            >
-              {isBooking ? "Processing..." : (
-                <>
-                  <TrendingUp className="w-5 h-5" />
-                  Secure Checkout
-                </>
-              )}
+            <button onClick={handleBookNow} disabled={selectedSeats.length === 0 || isBooking}
+              className="w-full bg-gradient-to-r from-green-600 via-emerald-600 to-green-600 hover:from-green-500 hover:to-emerald-500 disabled:from-gray-700 disabled:to-gray-800 disabled:cursor-not-allowed py-4 px-6 rounded-xl font-bold text-lg mb-3 transition-all shadow-lg shadow-green-500/30 hover:shadow-green-500/50 hover:scale-105 flex items-center justify-center gap-2">
+              {isBooking ? "Processing..." : <><TrendingUp className="w-5 h-5" /> Secure Checkout</>}
             </button>
             
-            <button
-              onClick={handleReset}
-              disabled={selectedSeats.length === 0}
-              className="w-full backdrop-blur-xl bg-white/10 hover:bg-white/20 disabled:bg-white/5 disabled:cursor-not-allowed border border-white/20 py-3 px-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2"
-            >
-              <X className="w-4 h-4" />
-              Clear Selection
+            <button onClick={handleReset} disabled={selectedSeats.length === 0}
+              className="w-full backdrop-blur-xl bg-white/10 hover:bg-white/20 disabled:bg-white/5 disabled:cursor-not-allowed border border-white/20 py-3 px-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2">
+              <X className="w-4 h-4" /> Clear Selection
             </button>
 
-             {/* ADMIN KILL SWITCH */}
-             <button 
-                onClick={handleResetDB}
-                className="mt-6 w-full group relative overflow-hidden bg-red-950/30 border border-red-500/30 hover:bg-red-900/50 text-red-400 hover:text-red-200 py-3 px-4 rounded-xl font-mono text-xs uppercase tracking-widest transition-all"
-            >
-                <div className="flex items-center justify-center gap-2">
-                    <Trash2 className="w-3 h-3 group-hover:animate-bounce" />
-                    <span>Admin: Wipe Database</span>
-                </div>
+             <button onClick={handleResetDB} className="mt-6 w-full group relative overflow-hidden bg-red-950/30 border border-red-500/30 hover:bg-red-900/50 text-red-400 hover:text-red-200 py-3 px-4 rounded-xl font-mono text-xs uppercase tracking-widest transition-all">
+                <div className="flex items-center justify-center gap-2"><Trash2 className="w-3 h-3 group-hover:animate-bounce" /><span>Admin: Wipe Database</span></div>
             </button>
-
           </div>
         </div>
       </div>
