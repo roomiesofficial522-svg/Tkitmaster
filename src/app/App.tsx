@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Clock, Users, AlertCircle, Check, X, Zap, TrendingUp } from 'lucide-react';
+import { Clock, AlertCircle, Check, X, Zap, TrendingUp } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 
 type SeatState = 'available' | 'selected' | 'booked' | 'locked';
@@ -48,6 +48,10 @@ export default function App() {
   const [isBooking, setIsBooking] = useState(false);
   const [recentSoldCount, setRecentSoldCount] = useState(0);
 
+  // 🆔 USER ID GENERATOR
+  // We generate a random ID for "Me" so the server can distinguish between User A and User B
+  const [myUserId] = useState(() => Math.floor(Math.random() * 10000) + 1);
+
   // Initialize seats
   useEffect(() => {
     const initialSeats: Seat[] = [];
@@ -57,13 +61,12 @@ export default function App() {
       
       for (let num = 1; num <= SEATS_PER_ROW; num++) {
         const seatId = `${row}${num}`;
-        // Randomly mark some seats as already booked (25% chance)
-        const state: SeatState = Math.random() < 0.25 ? 'booked' : 'available';
+        // Clean board for testing (Everyone starts available)
         initialSeats.push({
           id: seatId,
           row,
           number: num,
-          state,
+          state: 'available',
           tier,
           price: tierPrice,
         });
@@ -72,9 +75,9 @@ export default function App() {
     setSeats(initialSeats);
     
     // Initial logs
-    addLog('System initialized - Real-time sync active', 'success');
-    addLog('WebSocket connection established', 'info');
-  }, []);
+    addLog(`System initialized. You are User_${myUserId}`, 'success');
+    addLog('Redis Engine connection established', 'info');
+  }, [myUserId]);
 
   // Add log entry
   const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
@@ -112,70 +115,33 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // Simulate concurrent users and activity
+  // Simulate concurrent users (Visual Noise Only)
+  // Replace the initialization useEffect with this:
   useEffect(() => {
-    const interval = setInterval(() => {
-      // Fluctuate live users count
-      setLiveUsers((prev) => {
-        const change = Math.floor(Math.random() * 41) - 20; // -20 to +20
-        return Math.max(1200, Math.min(2000, prev + change));
-      });
-
-      setSeats((currentSeats) => {
-        const availableSeats = currentSeats.filter((s) => s.state === 'available');
-        const lockedSeats = currentSeats.filter((s) => s.state === 'locked');
-
-        const updatedSeats = [...currentSeats];
-        let soldThisCycle = 0;
-
-        // Randomly lock some available seats (simulate other users) - higher frequency
-        if (availableSeats.length > 0 && Math.random() < 0.5) {
-          const randomSeat = availableSeats[Math.floor(Math.random() * availableSeats.length)];
-          const userId = Math.floor(Math.random() * 9000) + 1000;
-          const seatIndex = updatedSeats.findIndex((s) => s.id === randomSeat.id);
-          if (seatIndex !== -1) {
-            updatedSeats[seatIndex] = { ...updatedSeats[seatIndex], state: 'locked', lockedBy: userId };
-            addLog(`User_${userId} locked Seat ${randomSeat.id} [${TIER_CONFIG[randomSeat.tier].label}]`, 'warning');
-          }
+    const fetchStadium = async () => {
+      try {
+        const res = await fetch('http://localhost:3001/api/seats');
+        const data = await res.json();
+        
+        if (data.seats) {
+          // Map backend data to frontend interface
+          // Note: Backend says 'locked', 'booked', 'available'. 
+          // Frontend expects specific logic.
+          setSeats(data.seats);
+          addLog('Connected to Live Stadium Database', 'success');
         }
+      } catch (err) {
+        toast.error("Could not load stadium data");
+        addLog('Failed to connect to backend', 'error');
+      }
+    };
 
-        // Randomly unlock or book locked seats
-        if (lockedSeats.length > 0 && Math.random() < 0.4) {
-          const randomLockedSeat = lockedSeats[Math.floor(Math.random() * lockedSeats.length)];
-          const seatIndex = updatedSeats.findIndex((s) => s.id === randomLockedSeat.id);
-          if (seatIndex !== -1) {
-            const shouldBook = Math.random() < 0.6; // Higher chance of booking
-            if (shouldBook) {
-              updatedSeats[seatIndex] = { ...updatedSeats[seatIndex], state: 'booked', lockedBy: undefined };
-              addLog(`Purchase Confirmed: Seat ${randomLockedSeat.id} sold to User_${randomLockedSeat.lockedBy}`, 'success');
-              soldThisCycle++;
-            } else {
-              updatedSeats[seatIndex] = { ...updatedSeats[seatIndex], state: 'available', lockedBy: undefined };
-              addLog(`Timeout: Seat ${randomLockedSeat.id} released back to pool`, 'info');
-            }
-          }
-        }
-
-        // Occasionally release a random booked seat as "New block opened"
-        if (Math.random() < 0.05) {
-          const bookedSeats = updatedSeats.filter((s) => s.state === 'booked');
-          if (bookedSeats.length > 0) {
-            const randomBooked = bookedSeats[Math.floor(Math.random() * bookedSeats.length)];
-            const seatIndex = updatedSeats.findIndex((s) => s.id === randomBooked.id);
-            if (seatIndex !== -1) {
-              updatedSeats[seatIndex] = { ...updatedSeats[seatIndex], state: 'available' };
-              addLog(`New Block Opened: Row ${randomBooked.row} - Seats released`, 'success');
-            }
-          }
-        }
-
-        setRecentSoldCount(soldThisCycle);
-        return updatedSeats;
-      });
-    }, 1500);
-
+    fetchStadium();
+    
+    // Optional: Poll every 2 seconds to see other people's updates (Live View)
+    const interval = setInterval(fetchStadium, 2000);
     return () => clearInterval(interval);
-  }, [addLog]);
+  }, []);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -183,44 +149,84 @@ export default function App() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleSeatClick = (seatId: string) => {
+  // ==============================================
+  // ⚡ CORE LOGIC: HANDLE SEAT CLICK (ATOMIC LOCK)
+  // ==============================================
+  const handleSeatClick = async (seatId: string) => {
     const seat = seats.find((s) => s.id === seatId);
-    if (!seat || seat.state === 'booked' || seat.state === 'locked') {
-      if (seat?.state === 'locked') {
-        toast.error(`Seat ${seatId} is locked by another user!`);
-      } else if (seat?.state === 'booked') {
-        toast.error(`Seat ${seatId} is already sold!`);
-      }
-      return;
+
+    // 1. Basic Checks
+    if (!seat || seat.state === 'booked') {
+        toast.error("Seat unavailable");
+        return;
     }
 
-    if (seat.state === 'selected') {
-      // Deselect
-      setSelectedSeats((prev) => prev.filter((id) => id !== seatId));
-      setSeats((prev) =>
-        prev.map((s) => (s.id === seatId ? { ...s, state: 'available' } : s))
-      );
-      addLog(`Seat ${seatId} deselected`, 'info');
-    } else {
-      // Select
-      setSelectedSeats((prev) => [...prev, seatId]);
-      setSeats((prev) =>
-        prev.map((s) => (s.id === seatId ? { ...s, state: 'selected' } : s))
-      );
-      addLog(`Seat ${seatId} locked for current session`, 'info');
-      toast.success(`Seat ${seatId} added to cart`);
+    // 2. CHECK: Is it locked by SOMEONE ELSE?
+    // If it's locked, but NOT by me, I can't touch it.
+    if (seat.state === 'locked' && seat.lockedBy !== myUserId) {
+        toast.error(`Seat ${seatId} is currently held by another user.`);
+        return;
+    }
+
+    // 3. DESELECT / RELEASE LOGIC
+    // If I already have it selected (or I hold the lock), clicking again releases it.
+    if (selectedSeats.includes(seatId)) {
+        // Optimistic UI Update
+        setSelectedSeats((prev) => prev.filter((id) => id !== seatId));
+        setSeats((prev) => prev.map((s) => (s.id === seatId ? { ...s, state: 'available', lockedBy: undefined } : s)));
+        
+        // Call Backend to Release Lock
+        await fetch('http://localhost:3001/api/release', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ seatId, userId: myUserId })
+        });
+        addLog(`Lock released for ${seatId}`, 'info');
+        return;
+    }
+
+    // 4. SELECT / LOCK LOGIC (Same as before)
+    try {
+        const response = await fetch('http://localhost:3001/api/lock', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ seatId, userId: myUserId })
+        });
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            setSelectedSeats((prev) => [...prev, seatId]);
+            // MARK IT AS LOCKED BY *ME*
+            setSeats((prev) => prev.map((s) => (s.id === seatId ? { ...s, state: 'locked', lockedBy: myUserId } : s))); 
+            toast.success(`Seat Locked! 5:00 timer started.`);
+        } else {
+            setSeats((prev) => prev.map((s) => (s.id === seatId ? { ...s, state: 'locked' } : s))); // Lock it visually
+            toast.error("Too Slow! Seat just taken.");
+        }
+    } catch (error) {
+        toast.error("Network Error");
     }
   };
 
-  const handleReset = () => {
-    setSeats((prev) =>
-      prev.map((s) => (s.state === 'selected' ? { ...s, state: 'available' } : s))
-    );
+  const handleReset = async () => {
+    // Release ALL locks held by me
+    await Promise.all(selectedSeats.map(seatId => 
+        fetch('http://localhost:3001/api/release', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ seatId, userId: myUserId })
+        })
+    ));
+
+    setSeats((prev) => prev.map((s) => selectedSeats.includes(s.id) ? { ...s, state: 'available', lockedBy: undefined } : s));
     setSelectedSeats([]);
-    addLog('Selection cleared - Seats released', 'info');
+    addLog('Selection cleared & locks released', 'info');
     toast.info('All selections cleared');
   };
 
+  // ==============================================
+  // ⚡ CORE LOGIC: PAYMENT (IDEMPOTENCY)
+  // ==============================================
   const handleBookNow = async () => {
     if (selectedSeats.length === 0) {
       toast.error('No seats selected!');
@@ -228,43 +234,49 @@ export default function App() {
     }
 
     setIsBooking(true);
-    addLog(`Initiating checkout for ${selectedSeats.length} seat(s)...`, 'info');
-    addLog(`Payment gateway connection established`, 'info');
+    addLog(`Initiating secure checkout...`, 'info');
 
-    // Simulate booking process
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+    // GENERATE IDEMPOTENCY KEY
+    // This key is unique to THIS set of seats for THIS user.
+    // If you click the button 5 times, the key stays the same, so the server knows.
+    const idempotencyKey = `cart_${myUserId}_${selectedSeats.join('_')}`;
 
-    // Simulate random booking failure (seat was taken) - lower chance
-    const failureChance = Math.random();
-    if (failureChance < 0.2) {
-      const failedSeat = selectedSeats[Math.floor(Math.random() * selectedSeats.length)];
-      addLog(`ERROR: Payment failed for Seat ${failedSeat} - Already purchased`, 'error');
-      toast.error(`Transaction Failed! Seat ${failedSeat} was just sold.`, { duration: 5000 });
-      
-      // Mark failed seat as booked
-      setSeats((prev) =>
-        prev.map((s) => (s.id === failedSeat ? { ...s, state: 'booked' } : s))
-      );
-      setSelectedSeats((prev) => prev.filter((id) => id !== failedSeat));
-    } else {
-      // Success
-      const totalAmount = selectedSeats.reduce((sum, seatId) => {
-        const seat = seats.find((s) => s.id === seatId);
-        return sum + (seat?.price || 0);
-      }, 0);
-      
-      setSeats((prev) =>
-        prev.map((s) =>
-          selectedSeats.includes(s.id) ? { ...s, state: 'booked' } : s
-        )
-      );
-      addLog(`✓ TRANSACTION COMPLETE: ₹${totalAmount.toLocaleString()} | Seats: ${selectedSeats.join(', ')}`, 'success');
-      addLog(`Confirmation sent to registered email`, 'success');
-      toast.success(`🎉 Booking Confirmed! ${selectedSeats.length} seat(s) secured.`, { duration: 5000 });
-      setSelectedSeats([]);
+    try {
+      const response = await fetch('http://localhost:3001/api/pay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          idempotencyKey,
+          seatId: selectedSeats[0], // Simplified for single seat demo
+          userId: myUserId
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // ✅ PAYMENT SUCCESS
+        const totalAmount = selectedSeats.reduce((sum, seatId) => {
+          const seat = seats.find((s) => s.id === seatId);
+          return sum + (seat?.price || 0);
+        }, 0);
+        
+        setSeats((prev) => prev.map((s) => selectedSeats.includes(s.id) ? { ...s, state: 'booked' } : s));
+        
+        addLog(`✓ PAYMENT CONFIRMED: Tx ID ${data.txId}`, 'success');
+        addLog(`Idempotency Token: ${idempotencyKey}`, 'info');
+        toast.success(`🎉 Booking Confirmed! Seat secured.`);
+        setSelectedSeats([]);
+      } else {
+        // ❌ PAYMENT FAILED
+        toast.error(data.message || "Payment Failed");
+        addLog(`> PAYMENT ERROR: ${data.message}`, 'error');
+      }
+    } catch (error) {
+      toast.error("Network Error");
+    } finally {
+      setIsBooking(false);
     }
-
-    setIsBooking(false);
   };
 
   const calculateTotal = () => {
@@ -371,47 +383,61 @@ export default function App() {
               {/* Seats */}
               <div className="grid grid-cols-10 gap-1">
                 {seats.map((seat) => {
-                  const tierConfig = TIER_CONFIG[seat.tier];
-                  const isAvailable = seat.state === 'available';
-                  const isSelected = seat.state === 'selected';
-                  const isBooked = seat.state === 'booked';
-                  const isLocked = seat.state === 'locked';
-                  
-                  return (
-                    <button
-                      key={seat.id}
-                      onClick={() => handleSeatClick(seat.id)}
-                      disabled={isBooked || isLocked}
-                      className={`
-                        h-7 md:h-9 rounded-md transition-all duration-200 text-xs font-mono relative
-                        ${isAvailable ? `bg-white/5 border-2 ${tierConfig.color} hover:bg-gradient-to-br hover:shadow-lg ${tierConfig.glowColor} hover:scale-110` : ''}
-                        ${isSelected ? 'bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-cyan-400 scale-105 shadow-lg shadow-cyan-500/50' : ''}
-                        ${isBooked ? 'bg-gray-800/50 border border-gray-700 opacity-30 cursor-not-allowed line-through' : ''}
-                        ${isLocked ? 'bg-gradient-to-br from-orange-500 to-red-500 animate-pulse border-2 border-orange-400 cursor-not-allowed shadow-lg shadow-orange-500/50' : ''}
-                      `}
-                      title={
-                        isLocked
-                          ? `🔒 Locked by User_${seat.lockedBy}`
-                          : isBooked
-                          ? '❌ Sold'
-                          : `${seat.id} - ₹${seat.price.toLocaleString()}`
-                      }
-                    >
-                      {isSelected && <Check className="w-3 h-3 md:w-4 md:h-4 mx-auto text-white" />}
-                      {isBooked && <X className="w-3 h-3 mx-auto text-gray-600" />}
-                      {isLocked && <div className="w-2 h-2 md:w-3 md:h-3 mx-auto bg-white rounded-full"></div>}
-                    </button>
-                  );
-                })}
-              </div>
-              
-              {/* Column numbers */}
-              <div className="grid grid-cols-10 gap-1 mt-2">
-                {Array.from({ length: SEATS_PER_ROW }, (_, i) => (
-                  <div key={i} className="text-center text-xs text-gray-500 font-mono">
-                    {i + 1}
-                  </div>
-                ))}
+                const tierConfig = TIER_CONFIG[seat.tier];
+                
+                // 1. DETERMINE OWNERSHIP
+                // "My Lock" means the server says it's locked AND the ID matches mine.
+                const isMyLock = seat.lockedBy === myUserId;
+                
+                // "Locked by Other" means it is locked, but NOT by me.
+                const isLockedByOther = seat.state === 'locked' && !isMyLock;
+
+                // 2. DEFINE STATES
+                const isAvailable = seat.state === 'available';
+                const isBooked = seat.state === 'booked';
+                
+                // "Selected" visually now encompasses "I clicked it" OR "I hold the lock"
+                // This ensures it stays Blue even after the server confirms the lock
+                const isSelected = selectedSeats.includes(seat.id) || isMyLock;
+
+                return (
+                  <button
+                    key={seat.id}
+                    onClick={() => handleSeatClick(seat.id)}
+                    // CRITICAL: Disable ONLY if someone ELSE has it. 
+                    // If YOU have it, it is NOT disabled (so you can click to release/deselect).
+                    disabled={isBooked || isLockedByOther} 
+                    className={`
+                      h-7 md:h-9 rounded-md transition-all duration-200 text-xs font-mono relative
+                      
+                      ${/* AVAILABLE STATE */ ''}
+                      ${isAvailable ? `bg-white/5 border-2 ${tierConfig.color} hover:bg-gradient-to-br hover:shadow-lg ${tierConfig.glowColor} hover:scale-110` : ''}
+                      
+                      ${/* MY LOCK / SELECTED STATE (Blue/Cyan) - Shows for YOU */ ''}
+                      ${isSelected ? 'bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-cyan-400 scale-105 shadow-lg shadow-cyan-500/50 z-10' : ''}
+                      
+                      ${/* SOLD STATE (Gray/Cross) */ ''}
+                      ${isBooked ? 'bg-gray-800/50 border border-gray-700 opacity-30 cursor-not-allowed line-through' : ''}
+                      
+                      ${/* LOCKED BY OTHERS STATE (Orange/Pulse) - Shows for EVERYONE ELSE */ ''}
+                      ${isLockedByOther ? 'bg-gradient-to-br from-orange-500 to-red-500 animate-pulse border-2 border-orange-400 cursor-not-allowed shadow-lg shadow-orange-500/50' : ''}
+                    `}
+                    title={
+                      isLockedByOther
+                        ? `🔒 Locked by User_${seat.lockedBy}`
+                        : isBooked
+                        ? '❌ Sold'
+                        : isSelected
+                        ? '✅ Reserved by You (Click to Release)'
+                        : `${seat.id} - ₹${seat.price.toLocaleString()}`
+                    }
+                  >
+                    {isSelected && <Check className="w-3 h-3 md:w-4 md:h-4 mx-auto text-white" />}
+                    {isBooked && <X className="w-3 h-3 mx-auto text-gray-600" />}
+                    {isLockedByOther && <div className="w-2 h-2 md:w-3 md:h-3 mx-auto bg-white rounded-full"></div>}
+                  </button>
+                );
+              })}
               </div>
             </div>
             
