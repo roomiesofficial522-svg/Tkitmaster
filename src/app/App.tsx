@@ -44,9 +44,9 @@ export default function App() {
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [showOtpInput, setShowOtpInput] = useState(false);
-  const [isSendingOtp, setIsSendingOtp] = useState(false); // 🆕 Loading State
+  const [isSendingOtp, setIsSendingOtp] = useState(false); // Loading States
 
-  // --- APP STATE ---
+  // APP STATES
   const [seats, setSeats] = useState<Seat[]>([]);
   const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
   const [timeLeft, setTimeLeft] = useState(BOOKING_TIME_LIMIT);
@@ -60,9 +60,9 @@ export default function App() {
   const [isSessionExpired, setIsSessionExpired] = useState(false); 
   const [myUserId, setMyUserId] = useState<string | number>(0); 
 
-  // --- 🆕 PERSISTENCE & INIT ---
+  // PERSISTENCE
   useEffect(() => {
-    // Check Local Storage on Mount
+    // Check Local Storage
     const storedToken = localStorage.getItem('token');
     const storedUserId = localStorage.getItem('userId');
     if (storedToken && storedUserId) {
@@ -78,7 +78,7 @@ export default function App() {
       window.location.reload();
   };
 
-  // --- LOGGING ---
+  // LOGGINg
   const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
     setLogCounter((prev) => {
       const newId = prev + 1;
@@ -95,11 +95,11 @@ export default function App() {
     });
   }, []);
 
-  // --- AUTH HANDLERS ---
+  // Auth Handles
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // 🛡️ EMAIL DOMAIN CHECK
+    // Email domain check
     const allowedDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com'];
     const domain = email.split('@')[1];
     if (!domain || !allowedDomains.includes(domain)) {
@@ -107,7 +107,7 @@ export default function App() {
     }
 
     if (showOtpInput) {
-        // VERIFY OTP
+        // Verify OTP
         try {
             const res = await fetch('http://localhost:3001/api/auth/verify-register', {
                 method: 'POST',
@@ -116,7 +116,7 @@ export default function App() {
             });
             const data = await res.json();
             if (data.success) {
-                // 💾 SAVE TO STORAGE
+                // Save to Storage
                 localStorage.setItem('token', data.token);
                 localStorage.setItem('userId', data.userId);
                 
@@ -129,8 +129,8 @@ export default function App() {
             }
         } catch (err) { toast.error("Server Error"); }
     } else {
-        // SEND OTP
-        setIsSendingOtp(true); // START LOADING
+        // Send OTP
+        setIsSendingOtp(true); 
         try {
             const res = await fetch('http://localhost:3001/api/auth/register', {
                 method: 'POST',
@@ -145,7 +145,7 @@ export default function App() {
                 toast.error(data.error);
             }
         } catch (err) { toast.error("Server Error"); }
-        finally { setIsSendingOtp(false); } // END LOADING
+        finally { setIsSendingOtp(false); } 
     }
   };
 
@@ -159,7 +159,7 @@ export default function App() {
         });
         const data = await res.json();
         if (data.success) {
-            // 💾 SAVE TO STORAGE
+            // Save to Storage
             localStorage.setItem('token', data.token);
             localStorage.setItem('userId', data.userId);
 
@@ -173,7 +173,7 @@ export default function App() {
     } catch (err) { toast.error("Server Error"); }
   };
 
-  // --- APP LOGIC ---
+  // App Logic
 
   useEffect(() => {
     if(!isAuthenticated) return;
@@ -384,7 +384,7 @@ export default function App() {
     );
   }
 
-  // --- MAIN UI ---
+  // Main UI
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 md:p-6 overflow-hidden relative">
       <Toaster position="top-center" theme="dark" richColors />
@@ -406,11 +406,11 @@ export default function App() {
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div>
               <h1 className="text-3xl md:text-5xl font-black tracking-tight bg-gradient-to-r from-white via-blue-200 to-purple-300 bg-clip-text text-transparent mb-2">
-                COLDPLAY: LIVE IN MUMBAI
+                FOSSILS LIVE
               </h1>
               <div className="flex items-center gap-2 text-sm text-gray-400">
                 <Zap className="w-4 h-4 text-yellow-500" />
-                <span>DY Patil Stadium • March 15, 2026</span>
+                <span>Eden Gardens, Kolkata • March 15, 2026</span>
               </div>
             </div>
             
@@ -459,7 +459,7 @@ export default function App() {
             <div className="mb-8">
               <div className="relative bg-gradient-to-b from-purple-600/30 to-pink-600/30 border border-purple-500/50 rounded-xl py-4 text-center overflow-hidden shadow-lg shadow-purple-500/30">
                 <span className="relative text-2xl font-bold tracking-widest bg-gradient-to-r from-purple-300 to-pink-300 bg-clip-text text-transparent">
-                  ⚡ STAGE ⚡
+                  STAGE
                 </span>
               </div>
             </div>
@@ -579,7 +579,7 @@ export default function App() {
       <div className="max-w-[1800px] mx-auto mt-6">
         <div className="backdrop-blur-xl bg-black/80 border-2 border-green-500/50 rounded-2xl overflow-hidden shadow-2xl shadow-green-500/20">
           <div className="bg-gray-900 px-4 py-2 border-b border-green-500/30 flex justify-between">
-            <span className="text-green-500 font-mono text-sm">⚡ SYSTEM LOGS</span>
+            <span className="text-green-500 font-mono text-sm">SYSTEM LOGS</span>
           </div>
           <div className="p-4 h-48 overflow-y-auto font-mono text-xs space-y-1">
              {logs.map(log => (
