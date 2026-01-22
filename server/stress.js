@@ -1,20 +1,31 @@
+require('dotenv').config(); // 🟢 LOAD .ENV (Matches Server)
+
 const axios = require('axios');
+const jwt = require('jsonwebtoken');
 
 const TARGET_SEAT = "A1";
 const TOTAL_BOTS = 1000;
 const URL = "http://localhost:3001/api/lock";
 
-// Terminal Colors
+// 🟢 GET SECRET FROM ENV (CRITICAL FIX)
+// If .env is missing, it falls back to string, but warns you.
+const JWT_SECRET = process.env.JWT_SECRET || "hackathon_super_secret_key";
+
+if (!process.env.JWT_SECRET) {
+    console.log("⚠️  WARNING: JWT_SECRET not found in .env. Using fallback. Bots might fail if server has a different key.");
+}
+
+// Colors
 const colors = {
   reset: "\x1b[0m",
   green: "\x1b[32m",
   red: "\x1b[31m",
   cyan: "\x1b[36m",
   yellow: "\x1b[33m",
-  magenta: "\x1b[35m"
+  magenta: "\x1b[35m",
+  gray: "\x1b[90m"
 };
 
-// 🟢 HELPER: Generate a fake random IP (e.g., "192.168.1.50")
 const getRandomIP = () => {
     return `${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`;
 };
@@ -22,54 +33,69 @@ const getRandomIP = () => {
 const runStressTest = async () => {
     const startId = Math.floor(Math.random() * 800000) + 100000; 
     
-    console.log(`\n${colors.cyan}🚀 PREPARING DISTRIBUTED ATTACK: ${TOTAL_BOTS} UNIQUE IPs...${colors.reset}`);
-    console.log(`${colors.magenta}ℹ️  Mode: IP Spoofing Enabled (Bypassing Rate Limiter)${colors.reset}`);
+    console.log(`\nLAUNCHING AUTHENTICATED BOT ATTACK (${TOTAL_BOTS} BOTS)...`);
+    console.log(`Target: ${URL} | Secret: ${JWT_SECRET.substring(0, 5)}...`);
 
     const requests = [];
     const dispatchStart = process.hrtime(); 
 
     for (let i = 0; i < TOTAL_BOTS; i++) {
         const botId = startId + i;
-        const fakeIP = getRandomIP(); // Each bot gets a unique identity
+        const fakeIP = getRandomIP(); //Enter "IP" to make constant ip(Test rate limiting)
+        
+        // GENERATE VALID TOKEN
+        const token = jwt.sign({ userId: botId, email: `bot${botId}@hackathon.com` }, JWT_SECRET);
 
         requests.push(
-            axios.post(URL, { seatId: TARGET_SEAT, userId: botId }, {
-                // 🟢 SPOOF THE IP ADDRESS
-                headers: { 'X-Forwarded-For': fakeIP }
+            axios.post(URL, { seatId: TARGET_SEAT }, { 
+                headers: { 
+                    'X-Forwarded-For': fakeIP,
+                    'Authorization': `Bearer ${token}` // SEND TOKEN
+                }
             })
-            .then(res => ({ status: res.status, id: botId, ip: fakeIP }))
-            .catch(err => ({ status: err.response?.status || 500, id: botId, ip: fakeIP }))
+            .then(res => ({ status: res.status, id: botId }))
+            .catch(err => ({ status: err.response?.status || 500, id: botId, err: err.message }))
         );
     }
     
     const dispatchEnd = process.hrtime(dispatchStart);
     const dispatchTimeMs = (dispatchEnd[0] * 1000 + dispatchEnd[1] / 1e6).toFixed(2);
 
-    console.log(`${colors.yellow}⚡ ALL ${TOTAL_BOTS} REQUESTS FIRED IN: ${dispatchTimeMs}ms${colors.reset}`);
-    console.log(`(Simulating global traffic from ${TOTAL_BOTS} different locations)`);
+    console.log(`ALL ${TOTAL_BOTS} REQUESTS FIRED IN: ${dispatchTimeMs}ms`);
     console.log("---------------------------------------------------");
 
     const results = await Promise.all(requests);
 
+    // ANALYZE ALL STATUS CODES
     const successes = results.filter(r => r.status === 200);
-    const failures = results.filter(r => r.status === 409); // Redis Logic Rejection
-    const blocked = results.filter(r => r.status === 429);  // Rate Limiter Rejection
-    const errors = results.filter(r => r.status === 500);
+    const failures = results.filter(r => r.status === 409);
+    const rateLimited = results.filter(r => r.status === 429);
+    const authFailed = results.filter(r => r.status === 403 || r.status === 401);
+    const serverErrors = results.filter(r => r.status === 500);
+    const others = results.filter(r => ![200, 409, 429, 403, 401, 500].includes(r.status));
 
-    console.log(`${colors.green}✅ SUCCESS (200):   ${successes.length} (The Winner)${colors.reset}`);
-    console.log(`${colors.red}❌ CONFLICTS (409): ${failures.length} (Stopped by Redis)${colors.reset}`);
-    console.log(`${colors.magenta}🛡️  BLOCKED (429):   ${blocked.length} (Stopped by Rate Limit)${colors.reset}`);
+    console.log(`SUCCESS (200):     ${successes.length} ${successes.length === 1 ? "(WINNER)" : ""}`);
+    console.log(`CONFLICTS (409):   ${failures.length} (Stopped by Redis)`);
+    console.log(`RATE LIMIT (429):   ${rateLimited.length}`);
     
-    if (errors.length > 0) console.log(`💀 ERRORS (500):    ${errors.length}`);
+    if (authFailed.length > 0) {
+        console.log(`AUTH FAILED (403): ${authFailed.length} (Secret Key Mismatch?)`);
+    }
+    
+    if (serverErrors.length > 0) {
+        console.log(`SERVER ERROR (500): ${serverErrors.length}`);
+    }
+
+    if (others.length > 0) {
+        console.log(`UNKNOWN (${others[0].status}):   ${others.length}`);
+    }
+
     console.log("---------------------------------------------------");
 
-    if (successes.length === 1 && failures.length === (TOTAL_BOTS - 1)) {
-        console.log(`${colors.green}🏆 TEST PASSED: REDIS HANDLED GLOBAL CONCURRENCY${colors.reset}`);
-        if (successes.length > 0) {
-            console.log(`🥇 Winner: Bot ${successes[0].id} from IP [${successes[0].ip}]`);
-        }
+    if (successes.length === 1 && failures.length + rateLimited.length === (TOTAL_BOTS - 1)) {
+        console.log(`TEST PASSED: SYSTEM SECURE & ATOMIC`);
     } else {
-        console.log(`${colors.red}⚠️ TEST FAILED / MIXED RESULTS${colors.reset}`);
+        console.log(`TEST FAILED / MIXED RESULTS`);
     }
 };
 
