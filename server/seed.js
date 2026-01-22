@@ -19,20 +19,20 @@ const seedDB = async () => {
     await redisClient.connect();
     console.log('✅ Connected to Redis');
     
-    // 2. NUKE THE OLD DATA & INDEXES (The Fix)
-    console.log('🧹 Dropping old collection to fix Zombie Indexes...');
+    // 2. Delete old datas and indexes
+    console.log('Deleting old collections');
     try {
         await Seat.collection.drop(); 
     } catch (e) {
-        // If collection doesn't exist, that's fine, ignore error
+        // If collection doesn't exist, ignore error
         if (e.code === 26) console.log('   (Collection was already empty)');
         else console.log('   (Note on drop:', e.message, ')');
     }
 
-    await redisClient.flushAll(); // Clear Redis cache too
+    await redisClient.flushAll(); // Clear Redis cache
 
     // 3. Generate Seats
-    console.log('🌱 Generating new seats...');
+    console.log('Generating new seats...');
     const seats = [];
     ROWS.forEach(row => {
       let tier = 'standard';
@@ -54,13 +54,14 @@ const seedDB = async () => {
 
     // 4. Insert to Mongo
     await Seat.insertMany(seats);
-    console.log(`🏟️  Stadium Built! Created ${seats.length} seats in MongoDB.`);
+    console.log(`Seats Built! Created ${seats.length} seats in MongoDB.`);
     
     process.exit();
   } catch (err) {
-    console.error('❌ SEED ERROR:', err);
+    console.error('SEED ERROR:', err);
     process.exit(1);
   }
 };
+
 
 seedDB();
