@@ -32,8 +32,8 @@ redisClient.on('error', (err) => console.log('Redis Error', err));
 redisClient.connect();
 
 mongoose.connect(MONGO_URI)
-  .then(() => console.log('✅ Connected to MongoDB (The Vault)'))
-  .catch(err => console.error('❌ MongoDB Connection Error:', err));
+  .then(() => console.log('Connected to MongoDB (The Vault)'))
+  .catch(err => console.error('MongoDB Connection Error:', err));
 
 // EMAIL TRANSPORTER
 const transporter = nodemailer.createTransport({
@@ -60,7 +60,7 @@ const limiter = rateLimit({
     max: 10,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { error: "⚠️ SECURITY SHIELD TRIGGERED: Too many requests. Chill out." },
+    message: { error: "⚠️ SECURITY SHIELD TRIGGERED: Too many requests." },
     keyGenerator: (req) => req.headers['x-forwarded-for'] || req.ip,
     validate: { trustProxy: false }
 });
@@ -275,3 +275,4 @@ app.post('/api/reset', async (req, res) => {
 
 
 app.listen(3001, () => console.log('TicketS Engine running on port 3001'));
+
