@@ -1,4 +1,4 @@
-require('dotenv').config(); // 🟢 LOAD .ENV (Matches Server)
+require('dotenv').config(); // Load .env
 
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
@@ -7,8 +7,7 @@ const TARGET_SEAT = "A1";
 const TOTAL_BOTS = 1000;
 const URL = "http://localhost:3001/api/lock";
 
-// 🟢 GET SECRET FROM ENV (CRITICAL FIX)
-// If .env is missing, it falls back to string, but warns you.
+// If .env is missing, it falls back to string, but warns.
 const JWT_SECRET = process.env.JWT_SECRET || "hackathon_super_secret_key";
 
 if (!process.env.JWT_SECRET) {
@@ -43,7 +42,7 @@ const runStressTest = async () => {
         const botId = startId + i;
         const fakeIP = getRandomIP(); //Enter "IP" to make constant ip(Test rate limiting)
         
-        // GENERATE VALID TOKEN
+        // Generate a valid token
         const token = jwt.sign({ userId: botId, email: `bot${botId}@hackathon.com` }, JWT_SECRET);
 
         requests.push(
@@ -66,7 +65,7 @@ const runStressTest = async () => {
 
     const results = await Promise.all(requests);
 
-    // ANALYZE ALL STATUS CODES
+    // Analyze all statys codes
     const successes = results.filter(r => r.status === 200);
     const failures = results.filter(r => r.status === 409);
     const rateLimited = results.filter(r => r.status === 429);
@@ -98,5 +97,6 @@ const runStressTest = async () => {
         console.log(`TEST FAILED / MIXED RESULTS`);
     }
 };
+
 
 runStressTest();
