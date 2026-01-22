@@ -1,19 +1,22 @@
+// 🟢 FIX 1: USE REQUIRE INSTEAD OF IMPORT
+require('dotenv').config(); 
+
 const express = require('express');
 const { createClient } = require('redis');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const Seat = require('./models/Seat'); // Ensure this file exists in server/models/Seat.js
+const Seat = require('./models/Seat'); 
 const rateLimit = require('express-rate-limit');
 
 const app = express();
-app.set('trust proxy', true);
+// 🟢 FIX 2: KEEP IP SPOOFING ENABLED FOR DEMO
+app.set('trust proxy', true); 
 
 app.use(cors());
 app.use(express.json());
 
 // CONFIG
-// ⚠️ REPLACE THIS WITH YOUR OWN MONGO URI IF NEEDED
-const MONGO_URI = 'mongodb+srv://roomiesofficial522_db_user:dznq0cmN9zOJtvLj@ticket-master.f3wpttq.mongodb.net/?appName=ticket-master';
+const MONGO_URI = process.env.MONGO_URI; // Loaded from .env
 const REDIS_TTL = 300; // 5 Minutes
 
 // --- 1. DATABASE CONNECTIONS ---
@@ -26,7 +29,12 @@ mongoose.connect(MONGO_URI)
   .catch(err => console.error('❌ MongoDB Connection Error:', err));
 
 
-// --- 2. LUA SCRIPT (The Race Condition Killer) ---
+// =================================================================
+// 🛡️ ARCHITECTURE NOTE: ATOMICITY
+// We use a LUA SCRIPT here to ensure the "Check-Then-Set" operation
+// happens atomically within Redis. This prevents the classic
+// "Race Condition" where two users see the seat as free simultaneously.
+// =================================================================
 const LOCK_SCRIPT = `
     local seatKey = KEYS[1]
     local userId = ARGV[1]
@@ -44,47 +52,49 @@ const LOCK_SCRIPT = `
     return 1
 `;
 
-// DEFINE THE "BOT SHIELD"
+// =================================================================
+// 🛡️ ARCHITECTURE NOTE: DISTRIBUTED DEFENSE
+// This Rate Limiter looks at the 'X-Forwarded-For' header to identify
+// unique users. This simulates a real-world API Gateway protecting
+// against DDoS attacks from botnets.
+// =================================================================
 const limiter = rateLimit({
-    windowMs: 1000, // 1 second window
-    max: 10, // Limit each IP to 10 requests per window
+    windowMs: 1000, 
+    max: 10, 
     standardHeaders: true,
     legacyHeaders: false,
-    message: { error: "⚠️ SECURITY SHIELD TRIGGERED: Too many requests. Chill out." }
+    message: { error: "⚠️ SECURITY SHIELD TRIGGERED: Too many requests. Chill out." },
+    // 🟢 KEY GENERATOR: Manually read the spoofed header for the demo
+    keyGenerator: (req) => {
+        return req.headers['x-forwarded-for'] || req.ip; 
+    },
+    // 🟢 FIX 3: SILENCE THE WARNING (It's intentional for the hackathon)
+    validate: { trustProxy: false } 
 });
 
 // --- 3. API ENDPOINTS ---
 
 app.get('/api/seats', async (req, res) => {
     try {
-        // 1. Get all Redis Keys for seats
         const keys = await redisClient.keys('seat:*');
-
-        // 2. Create a map of Redis Data
         const redisData = {};
         if (keys.length > 0) {
-            // Fetch Values AND TTLs in parallel
             const values = await Promise.all(keys.map(key => redisClient.get(key)));
             const ttls = await Promise.all(keys.map(key => redisClient.ttl(key)));
 
             keys.forEach((key, index) => {
                 const seatId = key.split(':')[1];
-                redisData[seatId] = {
-                    val: values[index],
-                    ttl: ttls[index]
-                };
+                redisData[seatId] = { val: values[index], ttl: ttls[index] };
             });
         }
 
-        // 3. Merge with MongoDB Data
         const seats = await Seat.find({}).sort({ row: 1, number: 1 });
         
         const seatMap = seats.map(seat => {
-            let status = seat.status; // 'available' or 'booked'
+            let status = seat.status;
             let lockedBy = null;
             let ttl = null;
 
-            // Check Redis Overrides
             const redisEntry = redisData[seat.seatId];
             if (redisEntry) {
                 const { val, ttl: keyTTL } = redisEntry;
@@ -105,7 +115,7 @@ app.get('/api/seats', async (req, res) => {
                 price: seat.price,
                 state: status,
                 lockedBy: lockedBy,
-                ttl: ttl // Sending TTL to frontend for Dev Mode
+                ttl: ttl 
             };
         });
 
@@ -121,9 +131,10 @@ app.post('/api/lock', limiter, async (req, res) => {
     const { seatId, userId } = req.body;
     const seatKey = `seat:${seatId}`;
     
-    // 1. PROOF OF ARRIVAL TIME
-    const arrivalTime = new Date().toISOString(); // e.g., 2026-01-22T12:00:00.123Z
-    // Only log strictly for the target seat to keep terminal clean-ish
+    // DEBUG LOG: See what IP the server thinks this is
+    // console.log(`[REQ] User ${userId} from IP: ${req.headers['x-forwarded-for'] || req.ip}`);
+
+    const arrivalTime = new Date().toISOString(); 
     if (seatId === "A1") {
         console.log(`[RACE_ENTRY] User ${userId} arrived at ${arrivalTime.split('T')[1]}`); 
     }
@@ -135,11 +146,9 @@ app.post('/api/lock', limiter, async (req, res) => {
         });
 
         if (result === 1) {
-            // THE WINNER
             console.log(`\n🏆 [WINNER] User ${userId} WON the race at ${arrivalTime.split('T')[1]}\n`);
             res.json({ success: true });
         } else {
-            // THE LOSERS
             res.status(409).json({ success: false, message: "Seat Unavailable" });
         }
     } catch (err) {
@@ -180,7 +189,7 @@ app.post('/api/pay', async (req, res) => {
         seat.userId = userId;
         await seat.save({ session });
 
-        await redisClient.set(seatKey, "SOLD");
+        await redisClient.del(seatKey);
 
         await session.commitTransaction();
         session.endSession();
@@ -230,7 +239,6 @@ app.post('/api/release', async (req, res) => {
 app.post('/api/reset', async (req, res) => {
     try {
         await redisClient.flushDb();
-        // Reset Mongo too (Optional, but good for full reset)
         await Seat.updateMany({}, { status: 'available', userId: null });
         console.log('⚠️ DATABASE WIPED BY ADMIN');
         res.json({ success: true, message: "Database Cleared" });
