@@ -1,50 +1,75 @@
-// server/stress.js
-const axios = require('axios'); // You might need to `npm install axios` in /server
+const axios = require('axios');
 
 const TARGET_SEAT = "A1";
-const TOTAL_BOTS = 500;
+const TOTAL_BOTS = 1000;
 const URL = "http://localhost:3001/api/lock";
 
-const runStressTest = async () => {
-    console.log(`\n🚀 LAUNCHING ${TOTAL_BOTS} CONCURRENT REQUESTS FOR SEAT [${TARGET_SEAT}]...`);
-    console.log("---------------------------------------------------");
+// Terminal Colors
+const colors = {
+  reset: "\x1b[0m",
+  green: "\x1b[32m",
+  red: "\x1b[31m",
+  cyan: "\x1b[36m",
+  yellow: "\x1b[33m",
+  magenta: "\x1b[35m"
+};
 
-    // 1. Create 500 Promises (Bots)
+// 🟢 HELPER: Generate a fake random IP (e.g., "192.168.1.50")
+const getRandomIP = () => {
+    return `${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`;
+};
+
+const runStressTest = async () => {
+    const startId = Math.floor(Math.random() * 800000) + 100000; 
+    
+    console.log(`\n${colors.cyan}🚀 PREPARING DISTRIBUTED ATTACK: ${TOTAL_BOTS} UNIQUE IPs...${colors.reset}`);
+    console.log(`${colors.magenta}ℹ️  Mode: IP Spoofing Enabled (Bypassing Rate Limiter)${colors.reset}`);
+
     const requests = [];
+    const dispatchStart = process.hrtime(); 
+
     for (let i = 0; i < TOTAL_BOTS; i++) {
-        const botId = 90000 + i;
-        // All requests fire INSTANTLY at the same time
+        const botId = startId + i;
+        const fakeIP = getRandomIP(); // Each bot gets a unique identity
+
         requests.push(
-            axios.post(URL, { seatId: TARGET_SEAT, userId: botId })
-                .then(res => ({ status: res.status, id: botId, data: res.data }))
-                .catch(err => ({ status: err.response?.status || 500, id: botId }))
+            axios.post(URL, { seatId: TARGET_SEAT, userId: botId }, {
+                // 🟢 SPOOF THE IP ADDRESS
+                headers: { 'X-Forwarded-For': fakeIP }
+            })
+            .then(res => ({ status: res.status, id: botId, ip: fakeIP }))
+            .catch(err => ({ status: err.response?.status || 500, id: botId, ip: fakeIP }))
         );
     }
+    
+    const dispatchEnd = process.hrtime(dispatchStart);
+    const dispatchTimeMs = (dispatchEnd[0] * 1000 + dispatchEnd[1] / 1e6).toFixed(2);
 
-    // 2. Fire them all!
-    const startTime = Date.now();
+    console.log(`${colors.yellow}⚡ ALL ${TOTAL_BOTS} REQUESTS FIRED IN: ${dispatchTimeMs}ms${colors.reset}`);
+    console.log(`(Simulating global traffic from ${TOTAL_BOTS} different locations)`);
+    console.log("---------------------------------------------------");
+
     const results = await Promise.all(requests);
-    const endTime = Date.now();
 
-    // 3. Analyze Results
     const successes = results.filter(r => r.status === 200);
-    const failures = results.filter(r => r.status === 409);
+    const failures = results.filter(r => r.status === 409); // Redis Logic Rejection
+    const blocked = results.filter(r => r.status === 429);  // Rate Limiter Rejection
     const errors = results.filter(r => r.status === 500);
 
-    console.log("---------------------------------------------------");
-    console.log(`⚡ PROCESSED IN:  ${endTime - startTime}ms`);
-    console.log(`✅ SUCCESS (200): ${successes.length}`);
-    console.log(`❌ CONFLICTS (409): ${failures.length}`);
-    console.log(`💀 ERRORS (500):    ${errors.length}`);
+    console.log(`${colors.green}✅ SUCCESS (200):   ${successes.length} (The Winner)${colors.reset}`);
+    console.log(`${colors.red}❌ CONFLICTS (409): ${failures.length} (Stopped by Redis)${colors.reset}`);
+    console.log(`${colors.magenta}🛡️  BLOCKED (429):   ${blocked.length} (Stopped by Rate Limit)${colors.reset}`);
+    
+    if (errors.length > 0) console.log(`💀 ERRORS (500):    ${errors.length}`);
     console.log("---------------------------------------------------");
 
     if (successes.length === 1 && failures.length === (TOTAL_BOTS - 1)) {
-        console.log("🏆 TEST PASSED: PERFECT CONCURRENCY CONTROL");
+        console.log(`${colors.green}🏆 TEST PASSED: REDIS HANDLED GLOBAL CONCURRENCY${colors.reset}`);
         if (successes.length > 0) {
-            console.log(`🥇 Winner: Bot ID ${successes[0].id}`);
+            console.log(`🥇 Winner: Bot ${successes[0].id} from IP [${successes[0].ip}]`);
         }
     } else {
-        console.log("⚠️ TEST FAILED: Race condition detected!");
+        console.log(`${colors.red}⚠️ TEST FAILED / MIXED RESULTS${colors.reset}`);
     }
 };
 
