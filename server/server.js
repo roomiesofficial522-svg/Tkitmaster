@@ -32,7 +32,7 @@ redisClient.on('error', (err) => console.log('Redis Error', err));
 redisClient.connect();
 
 mongoose.connect(MONGO_URI)
-  .then(() => console.log('Connected to MongoDB (The Vault)'))
+  .then(() => console.log('Connected to MongoDB Database'))
   .catch(err => console.error('MongoDB Connection Error:', err));
 
 // EMAIL TRANSPORTER
@@ -275,4 +275,5 @@ app.post('/api/reset', async (req, res) => {
 
 
 app.listen(3001, () => console.log('TicketS Engine running on port 3001'));
+
 
