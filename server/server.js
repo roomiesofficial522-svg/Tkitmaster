@@ -26,7 +26,7 @@ const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_PASS = process.env.EMAIL_PASS;
 const REDIS_TTL = 300; // 5 Minutes
 
-// --- 1. DATABASE CONNECTIONS ---
+// DATABASE CONNECTIONS ---
 const redisClient = createClient();
 redisClient.on('error', (err) => console.log('Redis Error', err));
 redisClient.connect();
@@ -35,15 +35,12 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log('✅ Connected to MongoDB (The Vault)'))
   .catch(err => console.error('❌ MongoDB Connection Error:', err));
 
-// --- EMAIL TRANSPORTER ---
+// EMAIL TRANSPORTER
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: { user: EMAIL_USER, pass: EMAIL_PASS }
 });
-
-// =================================================================
-// 🛡️ ARCHITECTURE NOTE: ATOMICITY
-// =================================================================
+// ATOMICITY
 const LOCK_SCRIPT = `
     local seatKey = KEYS[1]
     local userId = ARGV[1]
@@ -56,9 +53,8 @@ const LOCK_SCRIPT = `
     return 1
 `;
 
-// =================================================================
-// 🛡️ ARCHITECTURE NOTE: DISTRIBUTED DEFENSE
-// =================================================================
+// Rate Limiting Architecture
+
 const limiter = rateLimit({
     windowMs: 1000,
     max: 10,
@@ -90,23 +86,21 @@ const authenticateToken = (req, res, next) => {
     });
 };
 
-// --- HELPER: EMAIL VALIDATION ---
+// EMAIL VALIDATION
 const validateEmailDomain = (email) => {
     const allowedDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com'];
     const domain = email.split('@')[1];
     return allowedDomains.includes(domain);
 };
 
-// --- 3. AUTH ENDPOINTS ---
-
 // STEP 1: REGISTER & SEND OTP
 app.post('/api/auth/register', authLimiter, async (req, res) => {
     const { email } = req.body;
 
-    // 🛡️ SECURITY: PREVENT NoSQL INJECTION
+    // Prevent SQL injection for security
     if (typeof email !== 'string') return res.status(400).json({ error: "Invalid payload" });
 
-    // 🛡️ SECURITY: EMAIL DOMAIN CHECK
+    // email domain check
     if (!validateEmailDomain(email)) {
         return res.status(400).json({ error: "Only Gmail, Yahoo, Outlook, or iCloud allowed." });
     }
@@ -134,11 +128,11 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     });
 });
 
-// STEP 2: VERIFY OTP & CREATE ACCOUNT
+// VERIFY OTP & CREATE ACCOUNT
 app.post('/api/auth/verify-register', authLimiter, async (req, res) => {
     const { email, otp, password, phone } = req.body;
 
-    // 🛡️ SECURITY: INPUT SANITIZATION
+    // input sanitization
     if (typeof email !== 'string' || typeof otp !== 'string') return res.status(400).json({ error: "Invalid payload" });
 
     const storedOtp = await redisClient.get(`otp:${email}`);
@@ -156,11 +150,11 @@ app.post('/api/auth/verify-register', authLimiter, async (req, res) => {
     res.json({ success: true, token, userId: newUser._id });
 });
 
-// STEP 3: LOGIN
+// Login
 app.post('/api/auth/login', authLimiter, async (req, res) => {
     const { email, password } = req.body;
 
-    // 🛡️ SECURITY: PREVENT NoSQL INJECTION
+    // Prevent SQL injection
     if (typeof email !== 'string') return res.status(400).json({ error: "Invalid payload" });
 
     const user = await User.findOne({ email });
@@ -173,7 +167,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     res.json({ success: true, token, userId: user._id });
 });
 
-// --- 4. TICKET ENDPOINTS ---
+// Ticket Endpoints
 
 app.get('/api/seats', async (req, res) => {
     try {
@@ -198,7 +192,7 @@ app.get('/api/seats', async (req, res) => {
                 if (val === "SOLD") status = 'booked';
                 else if (val.startsWith('LOCKED:')) {
                     status = 'locked';
-                    lockedBy = parseInt(val.split(':')[1]); // Keeping logic compatible
+                    lockedBy = parseInt(val.split(':')[1]); 
                     ttl = keyTTL;
                 }
             }
@@ -279,4 +273,5 @@ app.post('/api/reset', async (req, res) => {
     res.json({ success: true });
 });
 
-app.listen(3001, () => console.log('🚀 TicketS Engine running on port 3001'));
+
+app.listen(3001, () => console.log('TicketS Engine running on port 3001'));
