@@ -301,7 +301,7 @@ export default function App() {
       if (data.success) {
         setSeats((prev) => prev.map((s) => selectedSeats.includes(s.id) ? { ...s, state: 'booked' } : s));
         addLog(`✓ PAYMENT CONFIRMED: Tx ID ${data.txId}`, 'success');
-        toast.success(`🎉 Booking Confirmed!`);
+        toast.success(`Booking Confirmed!`);
         setSelectedSeats([]);
       } else {
         toast.error(data.message || "Payment Failed");
@@ -311,7 +311,7 @@ export default function App() {
   };
 
   const handleResetDB = async () => {
-    if(!confirm("⚠️ ARE YOU SURE?")) return;
+    if(!confirm("ARE YOU SURE?")) return;
     await fetch('http://localhost:3001/api/reset', { method: 'POST' });
     setSelectedSeats([]);
     window.location.reload();
@@ -436,7 +436,7 @@ export default function App() {
                   </div>
                 </div>
               </div>
-              {/* 🆕 LOGOUT BUTTON */}
+              {/* LOGOUT BUTTON */}
               <button onClick={handleLogout} className="bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 p-3 rounded-xl transition-all" title="Logout">
                   <RotateCcw className="w-5 h-5 text-red-500" />
               </button>
